@@ -55,6 +55,11 @@
       </div>
     }
 
+    <label class="checkbox-row" for="greeks">
+      <input id="greeks" type="checkbox" formControlName="greeks" />
+      Afficher les grecques (delta, gamma, theta, vega)
+    </label>
+
     <button type="submit" [disabled]="loading()">
       @if (loading()) {
         Calcul en cours…
@@ -82,6 +87,27 @@
         }
         <span>{{ res.durationMs }} ms</span>
       </div>
+
+      @if (res.delta !== null) {
+        <div class="greeks-grid">
+          <div class="greek">
+            <span class="greek-label">Delta</span>
+            <span class="greek-value">{{ res.delta | number: '1.4-4' }}</span>
+          </div>
+          <div class="greek">
+            <span class="greek-label">Gamma</span>
+            <span class="greek-value">{{ res.gamma | number: '1.4-4' }}</span>
+          </div>
+          <div class="greek">
+            <span class="greek-label">Theta</span>
+            <span class="greek-value">{{ res.theta | number: '1.4-4' }}</span>
+          </div>
+          <div class="greek">
+            <span class="greek-label">Vega</span>
+            <span class="greek-value">{{ res.vega | number: '1.4-4' }}</span>
+          </div>
+        </div>
+      }
     </div>
   }
 </div>

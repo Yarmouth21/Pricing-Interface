@@ -18,7 +18,8 @@ public record PricingRequest(
         @Positive double volatility,
         @Positive double maturity,
         @Min(1000) @Max(2_000_000) Integer paths,
-        @Min(1) @Max(2000) Integer steps
+        @Min(1) @Max(2000) Integer steps,
+        Boolean greeks
 ) {
     private static final int DEFAULT_PATHS = 100_000;
     private static final int DEFAULT_STEPS = 252;
@@ -29,5 +30,9 @@ public record PricingRequest(
 
     public int stepsOrDefault() {
         return steps != null ? steps : DEFAULT_STEPS;
+    }
+
+    public boolean greeksRequested() {
+        return Boolean.TRUE.equals(greeks);
     }
 }

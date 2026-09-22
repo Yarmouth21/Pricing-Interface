@@ -34,6 +34,7 @@ export class PricingForm {
     maturity: [1, [Validators.required, Validators.min(0.0001)]],
     paths: [100000, [Validators.min(1000), Validators.max(2000000)]],
     steps: [252, [Validators.min(1), Validators.max(2000)]],
+    greeks: [false],
   });
 
   protected get isMonteCarlo(): boolean {
@@ -63,6 +64,7 @@ export class PricingForm {
         ...(value.method === PricingMethod.MonteCarlo
           ? { paths: value.paths!, steps: value.steps! }
           : {}),
+        greeks: value.greeks!,
       })
       .pipe(finalize(() => this.loading.set(false)))
       .subscribe({

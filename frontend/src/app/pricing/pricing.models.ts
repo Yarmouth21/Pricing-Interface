@@ -18,6 +18,7 @@ export interface PricingRequest {
   maturity: number;
   paths?: number;
   steps?: number;
+  greeks?: boolean;
 }
 
 export interface PricingResponse {
@@ -27,6 +28,10 @@ export interface PricingResponse {
   stdError: number | null;
   paths: number | null;
   steps: number | null;
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
   durationMs: number;
 }
 

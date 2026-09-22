@@ -26,7 +26,7 @@ class PricingControllerTest {
     @Test
     void returnsOkWithPricingResultForValidRequest() throws Exception {
         when(pricingService.price(any())).thenReturn(new PricingResponse(
-                PricingMethod.BLACK_SCHOLES, OptionType.CALL, 10.450584, null, null, null, 1));
+                PricingMethod.BLACK_SCHOLES, OptionType.CALL, 10.450584, null, null, null, null, null, null, null, 1));
 
         String requestJson = """
                 {

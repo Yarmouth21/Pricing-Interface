@@ -10,6 +10,10 @@ public record PricingResponse(
         Double stdError,
         Integer paths,
         Integer steps,
+        Double delta,
+        Double gamma,
+        Double theta,
+        Double vega,
         long durationMs
 ) {
 }

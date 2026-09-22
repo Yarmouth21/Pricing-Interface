@@ -45,12 +45,41 @@ describe('PricingForm', () => {
       stdError: null,
       paths: null,
       steps: null,
+      delta: null,
+      gamma: null,
+      theta: null,
+      vega: null,
       durationMs: 1,
     };
     req.flush(response);
 
     expect(component['result']()?.price).toBe(10.450584);
     expect(component['loading']()).toBe(false);
+  });
+
+  it('requests and surfaces the Greeks when the checkbox is enabled', () => {
+    component['form'].controls.greeks.setValue(true);
+
+    (component as any).submit();
+
+    const req = httpMock.expectOne(apiUrl);
+    expect(req.request.body.greeks).toBe(true);
+
+    req.flush({
+      method: PricingMethod.BlackScholes,
+      optionType: OptionType.Call,
+      price: 10.450584,
+      stdError: null,
+      paths: null,
+      steps: null,
+      delta: 0.636831,
+      gamma: 0.018762,
+      theta: -6.414028,
+      vega: 37.524035,
+      durationMs: 1,
+    } satisfies PricingResponse);
+
+    expect(component['result']()?.delta).toBeCloseTo(0.636831, 5);
   });
 
   it('surfaces the backend error message on failure', () => {

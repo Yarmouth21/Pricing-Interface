@@ -66,6 +66,9 @@ public class PricingService {
             command.add("--paths=" + request.pathsOrDefault());
             command.add("--steps=" + request.stepsOrDefault());
         }
+        if (request.greeksRequested()) {
+            command.add("--greeks");
+        }
         return command;
     }
 
@@ -144,6 +147,10 @@ public class PricingService {
                 node.has("stdError") ? node.get("stdError").asDouble() : null,
                 node.has("paths") ? node.get("paths").asInt() : null,
                 node.has("steps") ? node.get("steps").asInt() : null,
+                node.has("delta") ? node.get("delta").asDouble() : null,
+                node.has("gamma") ? node.get("gamma").asDouble() : null,
+                node.has("theta") ? node.get("theta").asDouble() : null,
+                node.has("vega") ? node.get("vega").asDouble() : null,
                 node.get("durationMs").asLong()
         );
     }

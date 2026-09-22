@@ -106,6 +106,6 @@ class PricingServiceTest {
     }
 
     private static PricingRequest sampleRequest(PricingMethod method) {
-        return new PricingRequest(method, OptionType.CALL, 100.0, 100.0, 0.05, 0.2, 1.0, null, null);
+        return new PricingRequest(method, OptionType.CALL, 100.0, 100.0, 0.05, 0.2, 1.0, null, null, null);
     }
 }

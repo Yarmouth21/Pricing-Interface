@@ -28,7 +28,7 @@ tests, and a containerized deployment pipeline.
   (params in, price out) via SLF4J.
 - **`frontend/`** — Angular 22 standalone app with a reactive form for the
   option parameters, calling the API and rendering the price, standard error
-  (Monte Carlo) and computation time.
+  (Monte Carlo), computation time, and optionally the Greeks.
 
 ## Why a subprocess instead of JNI/JNA?
 
@@ -100,12 +100,14 @@ Open [http://localhost:4200](http://localhost:4200).
   "volatility": 0.2,
   "maturity": 1.0,
   "paths": 100000,
-  "steps": 252
+  "steps": 252,
+  "greeks": true
 }
 ```
 
 `method` is `BLACK_SCHOLES` or `MONTE_CARLO`; `paths`/`steps` are optional and
-only used for Monte Carlo (default 100,000 paths × 252 steps).
+only used for Monte Carlo (default 100,000 paths × 252 steps); `greeks` is
+optional (default `false`) — see [Greeks](#greeks) below.
 
 Response:
 
@@ -117,12 +119,50 @@ Response:
   "stdError": 0.0329,
   "paths": 100000,
   "steps": 252,
-  "durationMs": 531
+  "delta": 0.6368,
+  "gamma": 0.0188,
+  "theta": -6.4090,
+  "vega": 37.3946,
+  "durationMs": 3805
 }
 ```
 
-Validation errors return `400` with a field-level breakdown; a pricing engine
-failure (bad binary path, timeout, crash) returns `502`.
+`delta`/`gamma`/`theta`/`vega` are only present when `greeks: true` was
+requested; otherwise they're omitted. Validation errors return `400` with a
+field-level breakdown; a pricing engine failure (bad binary path, timeout,
+crash) returns `502`.
+
+## Greeks
+
+Ticking "Afficher les grecques" in the UI (or passing `"greeks": true` in the
+request) additionally returns the four main first/second-order sensitivities:
+
+| Greek | Meaning | Sign convention |
+|-------|---------|------------------|
+| **Delta** | ∂Price / ∂Spot — hedge ratio | positive for a call (0 to 1), negative for a put (-1 to 0) |
+| **Gamma** | ∂Delta / ∂Spot — convexity, same for call and put | always ≥ 0 |
+| **Theta** | ∂Price / ∂(calendar time) — time decay per year | usually negative for a long option |
+| **Vega**  | ∂Price / ∂Volatility, per unit (i.e. per 100 vol points) | always ≥ 0 |
+
+How each method computes them:
+
+- **Black-Scholes** — exact closed-form derivatives of the pricing formula
+  (`blackScholesGreeks` in `pricer_cli.cpp`), returned instantly alongside the
+  price.
+- **Monte Carlo** — no closed form exists for a simulated price, so each Greek
+  is estimated by **central finite differences**: the engine bumps one
+  parameter up and down by 1% (e.g. `S₀ ± 1%` for delta/gamma) and reprices
+  with a fresh simulation for each bump. Critically, every bumped simulation
+  reuses the *same seeded RNG stream* as the base price — the **common random
+  numbers (CRN)** technique already used for the delta estimator in the
+  original academic project (`pricing.cpp`'s `calculateDelta`). Because the
+  bumped and base simulations consume identical Gaussian draws, most of the
+  Monte Carlo noise cancels out when the prices are subtracted, so the
+  resulting Greek is far more stable than it would be with independent random
+  streams. The trade-off is cost: computing all four Greeks for Monte Carlo
+  requires 6 extra simulations on top of the base price (delta & gamma share
+  the spot bumps), so `--greeks` roughly multiplies the engine's running time
+  by ~7×.
 
 ## Tests
 
@@ -133,14 +173,17 @@ failure (bad binary path, timeout, crash) returns `502`.
     (success, engine-side error, missing binary, timeout), no C++ toolchain
     required.
   - `PricingEngineIntegrationTest` — end-to-end against the real compiled
-    binary, skipped automatically if it hasn't been built.
+    binary (skipped automatically if it hasn't been built), including Greeks
+    assertions: Black-Scholes Greeks are checked against the known analytical
+    values, Monte Carlo Greeks are checked for convergence to those same
+    values.
   - `PricingControllerTest` — MockMvc tests for validation and response
     mapping.
   
   Run with `cd backend && ./mvnw test`.
-- **Frontend (Vitest)**: form defaults, successful pricing flow, backend error
-  surfacing, and client-side validation, all against a mocked `HttpClient`.
-  Run with `cd frontend && npx ng test --watch=false`.
+- **Frontend (Vitest)**: form defaults, successful pricing flow (with and
+  without Greeks), backend error surfacing, and client-side validation, all
+  against a mocked `HttpClient`. Run with `cd frontend && npx ng test --watch=false`.
 
 ## CI/CD
 
