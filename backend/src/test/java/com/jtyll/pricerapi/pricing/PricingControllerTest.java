@@ -87,4 +87,28 @@ class PricingControllerTest {
                         .content(requestJson))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void returnsBadRequestWhenMonteCarloGreeksWorkloadExceedsBudget() throws Exception {
+        String requestJson = """
+                {
+                    "method": "MONTE_CARLO",
+                    "optionType": "CALL",
+                    "spot": 100,
+                    "strike": 100,
+                    "riskFreeRate": 0.05,
+                    "volatility": 0.2,
+                    "maturity": 1.0,
+                    "paths": 2000000,
+                    "steps": 2000,
+                    "greeks": true
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/pricing")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.details.monteCarloGreeksWorkloadBounded").exists());
+    }
 }

@@ -5,7 +5,7 @@ FROM debian:bookworm-slim AS cpp-builder
 RUN apt-get update && apt-get install -y --no-install-recommends g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /engine
 COPY cpp-engine/pricer_cli.cpp .
-RUN g++ -std=c++17 -O2 -o pricer_cli pricer_cli.cpp
+RUN g++ -std=c++17 -O2 -pthread -o pricer_cli pricer_cli.cpp
 
 FROM maven:3.9-eclipse-temurin-21 AS java-builder
 WORKDIR /build

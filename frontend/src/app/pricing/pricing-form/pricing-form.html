@@ -1,6 +1,6 @@
 <div class="pricing-card">
   <h1>Pricer d'options européennes</h1>
-  <p class="subtitle">Black-Scholes analytique ou Monte Carlo — calcul délégué au moteur C++</p>
+  <p class="subtitle">Black-Scholes analytique ou Monte Carlo, calcul délégué au moteur C++</p>
 
   <form [formGroup]="form" (ngSubmit)="submit()">
     <div class="field-row">
@@ -59,6 +59,14 @@
       <input id="greeks" type="checkbox" formControlName="greeks" />
       Afficher les grecques (delta, gamma, theta, vega)
     </label>
+
+    @if (form.errors?.['greeksWorkloadTooLarge']) {
+      <div class="alert alert-error">
+        Avec les grecques activées, le nombre de trajectoires doit être ≤
+        {{ maxPathsWithGreeks }} et le nombre de pas ≤ {{ maxStepsWithGreeks }} (7 simulations sont
+        nécessaires au lieu d'une seule).
+      </div>
+    }
 
     <button type="submit" [disabled]="loading()">
       @if (loading()) {

@@ -14,9 +14,9 @@ jobs:
 
       - name: Compile pricer_cli
         working-directory: cpp-engine
-        run: g++ -std=c++17 -O2 -Wall -o pricer_cli pricer_cli.cpp
+        run: g++ -std=c++17 -O2 -Wall -pthread -o pricer_cli pricer_cli.cpp
 
-      - name: Smoke test — Black-Scholes matches the known analytical price
+      - name: Smoke test - Black-Scholes matches the known analytical price
         working-directory: cpp-engine
         run: |
           output=$(./pricer_cli --method=bs --type=call --s0=100 --k=100 --r=0.05 --vol=0.2 --t=1.0)
@@ -29,7 +29,7 @@ jobs:
           path: cpp-engine/pricer_cli
 
   backend:
-    name: Backend — build & JUnit tests
+    name: Backend - build & JUnit tests
     needs: cpp-engine
     runs-on: ubuntu-latest
     steps:
@@ -62,7 +62,7 @@ jobs:
           path: backend/target/surefire-reports
 
   frontend:
-    name: Frontend — build & unit tests
+    name: Frontend - build & unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

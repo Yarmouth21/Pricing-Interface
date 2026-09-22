@@ -1,5 +1,5 @@
 /*
- * pricer_cli — parameterized European option pricer (CLI wrapper)
+ * pricer_cli: a parameterized European option pricer (CLI wrapper)
  *
  * Exposes two pricing methods over a simple CLI/JSON contract so that
  * an external process (e.g. a Spring Boot service) can invoke this
@@ -39,6 +39,7 @@
 #include <chrono>
 #include <stdexcept>
 #include <sstream>
+#include <future>
 
 using namespace std;
 
@@ -68,12 +69,18 @@ static unordered_map<string, string> parseArgs(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {
         string arg = argv[i];
         if (arg.rfind("--", 0) != 0) continue;
-        auto eq = arg.find('=');
-        if (eq == string::npos) {
-            out[arg.substr(2)] = "true";
-        } else {
-            out[arg.substr(2, eq - 2)] = arg.substr(eq + 1);
+        // --greeks is the only valueless flag; every other flag is expected
+        // to be --key=value, so a malformed one (e.g. --s0 missing its
+        // =value) is ignored here and reported clearly as a missing
+        // required argument by buildParams below, instead of being
+        // silently coerced into an unparsable value.
+        if (arg == "--greeks") {
+            out["greeks"] = "true";
+            continue;
         }
+        auto eq = arg.find('=');
+        if (eq == string::npos) continue;
+        out[arg.substr(2, eq - 2)] = arg.substr(eq + 1);
     }
     return out;
 }
@@ -148,9 +155,9 @@ static Greeks blackScholesGreeks(const Params& p) {
 // log-normal transition (no discretization bias), same scheme as
 // calculatePrice() in ../pricing.cpp, generalized to call/put and
 // arbitrary maturity/paths/steps. Re-seeds its own generator so callers
-// can get a reproducible price for arbitrary (s0, vol, t) triples —
-// used directly, and reused with bumped parameters for the finite
-// difference Greeks below.
+// can get a reproducible price for arbitrary (s0, vol, t) triples, used
+// directly and reused with bumped parameters for the finite difference
+// Greeks below.
 struct McResult { double price; double stdError; };
 
 static McResult monteCarloAt(const Params& p, double s0, double vol, double t) {
@@ -186,20 +193,35 @@ static McResult monteCarlo(const Params& p) {
 // Finite-difference Greeks for the Monte Carlo price. Every bumped
 // re-simulation reuses the same seed as the base price (see
 // monteCarloAt), so the same underlying Gaussian draws are consumed by
-// each variant — common random numbers — which cancels most of the
+// each variant (common random numbers), which cancels most of the
 // simulation noise when the bumped prices are subtracted from one
-// another, at the cost of 6 extra simulations.
+// another, at the cost of 6 extra simulations, run in parallel here
+// since they're fully independent, to keep wall-clock time within the
+// caller's subprocess timeout.
 static Greeks monteCarloGreeks(const Params& p, double basePrice) {
     double hS = 0.01 * p.s0;
     double hVol = 0.01 * p.vol;
-    double hT = min(0.01 * p.t, p.t * 0.5);
+    // p.t is validated to be strictly positive in buildParams, so a 1%
+    // bump never pushes t - hT to zero or below.
+    double hT = 0.01 * p.t;
 
-    double priceUpS = monteCarloAt(p, p.s0 + hS, p.vol, p.t).price;
-    double priceDownS = monteCarloAt(p, p.s0 - hS, p.vol, p.t).price;
-    double priceUpVol = monteCarloAt(p, p.s0, p.vol + hVol, p.t).price;
-    double priceDownVol = monteCarloAt(p, p.s0, p.vol - hVol, p.t).price;
-    double priceUpT = monteCarloAt(p, p.s0, p.vol, p.t + hT).price;
-    double priceDownT = monteCarloAt(p, p.s0, p.vol, p.t - hT).price;
+    auto priceAt = [&](double s0, double vol, double t) {
+        return async(launch::async, [&p, s0, vol, t] { return monteCarloAt(p, s0, vol, t).price; });
+    };
+
+    auto upS = priceAt(p.s0 + hS, p.vol, p.t);
+    auto downS = priceAt(p.s0 - hS, p.vol, p.t);
+    auto upVol = priceAt(p.s0, p.vol + hVol, p.t);
+    auto downVol = priceAt(p.s0, p.vol - hVol, p.t);
+    auto upT = priceAt(p.s0, p.vol, p.t + hT);
+    auto downT = priceAt(p.s0, p.vol, p.t - hT);
+
+    double priceUpS = upS.get();
+    double priceDownS = downS.get();
+    double priceUpVol = upVol.get();
+    double priceDownVol = downVol.get();
+    double priceUpT = upT.get();
+    double priceDownT = downT.get();
 
     double delta = (priceUpS - priceDownS) / (2.0 * hS);
     double gamma = (priceUpS - 2.0 * basePrice + priceDownS) / (hS * hS);

@@ -73,6 +73,7 @@ class PricingEngineIntegrationTest {
 
         assertThat(response.delta()).isCloseTo(0.636831, within(0.05));
         assertThat(response.gamma()).isCloseTo(0.018762, within(0.01));
+        assertThat(response.theta()).isCloseTo(-6.414028, within(1.0));
         assertThat(response.vega()).isCloseTo(37.524035, within(5.0));
     }
 
