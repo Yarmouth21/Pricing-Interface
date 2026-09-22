@@ -34,11 +34,40 @@ tests, and a containerized deployment pipeline.
 
 The C++ code stays fully independent, compiles with a single `g++` command,
 and is trivial to test in isolation (see the CI job below). The trade-off is
-per-call process startup overhead, which is negligible here (a few
-milliseconds for Black-Scholes, ~1s for a 200k-path Monte Carlo run); this
-optimizes for clarity and portability over raw throughput, which is the right
-trade-off for a pricing tool used interactively rather than one under
-high-frequency load.
+per-call process startup overhead, which is negligible here: a few
+milliseconds for Black-Scholes, and (see below) single-digit milliseconds for
+Monte Carlo too, since it draws the terminal price directly instead of
+stepping through a time grid. This optimizes for clarity and portability over
+raw throughput, which is the right trade-off for a pricing tool used
+interactively rather than one under high-frequency load.
+
+## Why simulate S_T directly for Monte Carlo?
+
+`pricer_cli`'s Monte Carlo engine draws the terminal stock price `S_T` in a
+single step, even though the CLI still accepts a `--steps` flag. This isn't
+a shortcut: it's the correct implementation for what this API actually
+prices, and it used to be a real inefficiency worth calling out.
+
+The GBM log-normal transition is **exact** over any interval, not just short
+ones: there's no discretization bias to reduce by subdividing `[0, T]` into
+more sub-steps, unlike an Euler scheme. And a **European** payoff depends
+only on `S_T`, not on the path taken to get there. So the earlier
+implementation, which multiplied `steps` correlated Gaussian increments to
+build up to `S_T`, was drawing the exact same distribution as one direct
+draw, `steps` times more expensively, for no precision gained: 252 steps
+did ~252x more work than necessary per path. Measured effect: pricing
+100,000 paths with all four Greeks (7 simulations) dropped from ~3.8s to a
+few milliseconds once the step loop was removed, for an identical price and
+identical standard error regardless of the `--steps` value passed in.
+
+`steps` is kept on the CLI/API surface, unused, for path-dependent payoffs
+that would genuinely need it: an Asian option's payoff depends on the
+*average* of `S` over monitoring dates, a barrier option's on whether `S`
+*crosses* a level at any of them, both require simulating (or at least
+checking) intermediate points, unlike a vanilla European. Adding those
+products later means wiring `steps` back into the simulation loop for
+*those* payoffs specifically, not resurrecting it for the ones that don't
+need it.
 
 ## Run it
 
@@ -100,41 +129,45 @@ Open [http://localhost:4200](http://localhost:4200).
   "volatility": 0.2,
   "maturity": 1.0,
   "paths": 100000,
-  "steps": 252,
   "greeks": true
 }
 ```
 
-`method` is `BLACK_SCHOLES` or `MONTE_CARLO`; `paths`/`steps` are optional and
-only used for Monte Carlo (default 100,000 paths × 252 steps); `greeks` is
-optional (default `false`); see [Greeks](#greeks) below.
+`method` is `BLACK_SCHOLES` or `MONTE_CARLO`; `paths` is optional and only
+used for Monte Carlo (default 100,000); `greeks` is optional (default
+`false`; see [Greeks](#greeks) below). A `steps` field is also accepted for
+Monte Carlo but currently has no effect on the price; see [Why simulate
+S_T directly for Monte Carlo?](#why-simulate-s_t-directly-for-monte-carlo)
+above.
 
-Response:
+Response (a real run of the request above):
 
 ```json
 {
   "method": "MONTE_CARLO",
   "optionType": "CALL",
-  "price": 10.4523,
-  "stdError": 0.0329,
+  "price": 10.474081,
+  "stdError": 0.046708,
   "paths": 100000,
   "steps": 252,
-  "delta": 0.6368,
-  "gamma": 0.0188,
-  "theta": -6.4090,
-  "vega": 37.3946,
-  "durationMs": 3805
+  "delta": 0.636369,
+  "gamma": 0.018819,
+  "theta": -6.428300,
+  "vega": 37.707328,
+  "durationMs": 8
 }
 ```
 
 `delta`/`gamma`/`theta`/`vega` are only present when `greeks: true` was
 requested; otherwise they're omitted. Validation errors return `400` with a
 field-level breakdown; a pricing engine failure (bad binary path, timeout,
-crash) returns `502`.
+crash) returns `502`; a request arriving while the engine is already at its
+concurrency limit returns `503` (see [Concurrency &
+robustness](#concurrency--robustness) below).
 
 ## Greeks
 
-Ticking "Afficher les grecques" in the UI (or passing `"greeks": true` in the
+Ticking "Show the Greeks" in the UI (or passing `"greeks": true` in the
 request) additionally returns the four main first/second-order sensitivities:
 
 | Greek | Meaning | Sign convention |
@@ -161,13 +194,33 @@ How each method computes them:
   resulting Greek is far more stable than it would be with independent random
   streams. The trade-off is cost: computing all four Greeks for Monte Carlo
   requires 6 extra simulations on top of the base price (delta & gamma share
-  the spot bumps), so `--greeks` roughly multiplies the engine's workload by
-  ~7×. The 6 bumped simulations run concurrently (`std::async`), which cuts
-  wall-clock time versus running them one after another, but the API still
-  caps `paths`/`steps` more tightly when `greeks: true` and `method:
-  MONTE_CARLO` are combined (200,000 paths, 500 steps; see
-  `PricingRequest.isMonteCarloGreeksWorkloadBounded`) so a single request
-  can't tie up the pricing engine's subprocess timeout budget.
+  the spot bumps), so `--greeks` multiplies the engine's workload by ~7×.
+  Combined with the single-step `S_T` draw above, that's still cheap: the 6
+  bumped simulations run concurrently (`std::async`), and a 100,000-path,
+  all-four-Greeks request now completes in single-digit milliseconds; even
+  the maximum allowed 2,000,000 paths finishes in about 0.1s (measured).
+
+## Concurrency & robustness
+
+Two things `PricingService` does to stay well-behaved under real traffic,
+beyond happy-path pricing:
+
+- **Bounded engine concurrency.** Each request spawns a `pricer_cli`
+  subprocess, which itself spawns up to 6 threads for `--greeks`. Left
+  unbounded, enough concurrent requests could spawn an unbounded number of
+  processes and threads on the host. `PricingService` guards subprocess
+  invocation with a `Semaphore` sized by
+  `pricing.engine.max-concurrent-requests` (default 4); a request that
+  arrives while all permits are taken gets a `503` immediately instead of
+  queuing indefinitely or degrading everything else running on the box.
+- **Non-blocking stdout/stderr draining.** `ProcessBuilder`'s classic trap:
+  if you `waitFor()` before reading a child process's output pipes, and
+  that output exceeds the OS pipe buffer, the child blocks on `write()` and
+  `waitFor()` never returns on its own (only the configured timeout saves
+  you). `pricer_cli`'s output is one small JSON line today, but
+  `PricingService` reads stdout and stderr on their own threads
+  concurrently with `waitFor()` regardless, so this can't bite later if the
+  engine ever grows a chattier response.
 
 ## Tests
 
@@ -175,8 +228,10 @@ How each method computes them:
   price against the known analytical value (100/100/5%/20%/1y → 10.450584).
 - **Backend (JUnit 5)**:
   - `PricingServiceTest`: unit tests against a fake shell-script "engine"
-    (success, engine-side error, missing binary, timeout), no C++ toolchain
-    required.
+    (success, engine-side error, missing binary, timeout, the concurrency
+    limit rejecting a request with a busy exception, and an oversized
+    stdout payload to prove the concurrent stream-draining doesn't
+    deadlock), no C++ toolchain required.
   - `PricingEngineIntegrationTest`: end-to-end against the real compiled
     binary (skipped automatically if it hasn't been built), including Greeks
     assertions: Black-Scholes Greeks are checked against the known analytical

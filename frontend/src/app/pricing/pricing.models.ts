@@ -17,7 +17,6 @@ export interface PricingRequest {
   volatility: number;
   maturity: number;
   paths?: number;
-  steps?: number;
   greeks?: boolean;
 }
 
@@ -27,6 +26,7 @@ export interface PricingResponse {
   price: number;
   stdError: number | null;
   paths: number | null;
+  /** Reserved for future path-dependent payoffs; not shown in the UI. */
   steps: number | null;
   delta: number | null;
   gamma: number | null;

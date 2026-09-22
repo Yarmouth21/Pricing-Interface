@@ -26,7 +26,7 @@ class PricingEngineIntegrationTest {
     @EnabledIf("engineBinaryExists")
     void blackScholesMatchesKnownAnalyticalPrice() {
         PricingService service = new PricingService(
-                new PricingEngineProperties(BINARY_PATH.toString(), 30), new ObjectMapper());
+                new PricingEngineProperties(BINARY_PATH.toString(), 30, 4), new ObjectMapper());
 
         PricingResponse response = service.price(new PricingRequest(
                 PricingMethod.BLACK_SCHOLES, OptionType.CALL, 100.0, 100.0, 0.05, 0.2, 1.0, null, null, null));
@@ -38,7 +38,7 @@ class PricingEngineIntegrationTest {
     @EnabledIf("engineBinaryExists")
     void monteCarloConvergesCloseToBlackScholes() {
         PricingService service = new PricingService(
-                new PricingEngineProperties(BINARY_PATH.toString(), 30), new ObjectMapper());
+                new PricingEngineProperties(BINARY_PATH.toString(), 30, 4), new ObjectMapper());
 
         PricingResponse response = service.price(new PricingRequest(
                 PricingMethod.MONTE_CARLO, OptionType.CALL, 100.0, 100.0, 0.05, 0.2, 1.0, 200_000, 252, null));
@@ -51,7 +51,7 @@ class PricingEngineIntegrationTest {
     @EnabledIf("engineBinaryExists")
     void blackScholesGreeksMatchKnownAnalyticalValues() {
         PricingService service = new PricingService(
-                new PricingEngineProperties(BINARY_PATH.toString(), 30), new ObjectMapper());
+                new PricingEngineProperties(BINARY_PATH.toString(), 30, 4), new ObjectMapper());
 
         PricingResponse response = service.price(new PricingRequest(
                 PricingMethod.BLACK_SCHOLES, OptionType.CALL, 100.0, 100.0, 0.05, 0.2, 1.0, null, null, true));
@@ -66,7 +66,7 @@ class PricingEngineIntegrationTest {
     @EnabledIf("engineBinaryExists")
     void monteCarloGreeksAreCloseToBlackScholes() {
         PricingService service = new PricingService(
-                new PricingEngineProperties(BINARY_PATH.toString(), 30), new ObjectMapper());
+                new PricingEngineProperties(BINARY_PATH.toString(), 30, 4), new ObjectMapper());
 
         PricingResponse response = service.price(new PricingRequest(
                 PricingMethod.MONTE_CARLO, OptionType.CALL, 100.0, 100.0, 0.05, 0.2, 1.0, 100_000, 252, true));

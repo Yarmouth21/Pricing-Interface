@@ -1,34 +1,10 @@
 import { DecimalPipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
-import {
-  AbstractControl,
-  FormBuilder,
-  ReactiveFormsModule,
-  ValidationErrors,
-  Validators,
-} from '@angular/forms';
+import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { finalize } from 'rxjs';
 import { ApiErrorBody, OptionType, PricingMethod, PricingResponse } from '../pricing.models';
 import { PricingService } from '../pricing.service';
-
-// Mirrors the backend's PricingRequest.isMonteCarloGreeksWorkloadBounded:
-// Greeks multiply the Monte Carlo engine's cost ~7x (base price plus 6
-// bumped re-simulations), so large paths/steps combined with greeks would
-// otherwise reliably exceed the engine's subprocess timeout.
-const MAX_PATHS_WITH_GREEKS = 200_000;
-const MAX_STEPS_WITH_GREEKS = 500;
-
-function monteCarloGreeksWorkloadValidator(group: AbstractControl): ValidationErrors | null {
-  const { method, greeks, paths, steps } = group.value;
-  if (method !== PricingMethod.MonteCarlo || !greeks) {
-    return null;
-  }
-  if (paths > MAX_PATHS_WITH_GREEKS || steps > MAX_STEPS_WITH_GREEKS) {
-    return { greeksWorkloadTooLarge: true };
-  }
-  return null;
-}
 
 @Component({
   selector: 'app-pricing-form',
@@ -40,8 +16,6 @@ function monteCarloGreeksWorkloadValidator(group: AbstractControl): ValidationEr
 export class PricingForm {
   protected readonly PricingMethod = PricingMethod;
   protected readonly OptionType = OptionType;
-  protected readonly maxPathsWithGreeks = MAX_PATHS_WITH_GREEKS;
-  protected readonly maxStepsWithGreeks = MAX_STEPS_WITH_GREEKS;
 
   private readonly fb = inject(FormBuilder);
   private readonly pricingService = inject(PricingService);
@@ -50,21 +24,20 @@ export class PricingForm {
   protected readonly result = signal<PricingResponse | null>(null);
   protected readonly errorMessage = signal<string | null>(null);
 
-  protected readonly form = this.fb.group(
-    {
-      method: [PricingMethod.BlackScholes, Validators.required],
-      optionType: [OptionType.Call, Validators.required],
-      spot: [100, [Validators.required, Validators.min(0.01)]],
-      strike: [100, [Validators.required, Validators.min(0.01)]],
-      riskFreeRate: [0.05, [Validators.required, Validators.min(-1), Validators.max(1)]],
-      volatility: [0.2, [Validators.required, Validators.min(0.0001)]],
-      maturity: [1, [Validators.required, Validators.min(0.0001)]],
-      paths: [100000, [Validators.min(1000), Validators.max(2000000)]],
-      steps: [252, [Validators.min(1), Validators.max(2000)]],
-      greeks: [false],
-    },
-    { validators: monteCarloGreeksWorkloadValidator },
-  );
+  protected readonly form = this.fb.group({
+    method: [PricingMethod.BlackScholes, Validators.required],
+    optionType: [OptionType.Call, Validators.required],
+    spot: [100, [Validators.required, Validators.min(0.01)]],
+    strike: [100, [Validators.required, Validators.min(0.01)]],
+    riskFreeRate: [0.05, [Validators.required, Validators.min(-1), Validators.max(1)]],
+    volatility: [0.2, [Validators.required, Validators.min(0.0001)]],
+    maturity: [1, [Validators.required, Validators.min(0.0001)]],
+    // Monte Carlo path count; no "steps" input here since a European
+    // payoff depends only on S_T, which the engine draws in one exact
+    // step (see cpp-engine/pricer_cli.cpp) regardless of any step count.
+    paths: [100000, [Validators.min(1000), Validators.max(2000000)]],
+    greeks: [false],
+  });
 
   protected get isMonteCarlo(): boolean {
     return this.form.controls.method.value === PricingMethod.MonteCarlo;
@@ -90,9 +63,7 @@ export class PricingForm {
         riskFreeRate: value.riskFreeRate!,
         volatility: value.volatility!,
         maturity: value.maturity!,
-        ...(value.method === PricingMethod.MonteCarlo
-          ? { paths: value.paths!, steps: value.steps! }
-          : {}),
+        ...(value.method === PricingMethod.MonteCarlo ? { paths: value.paths! } : {}),
         greeks: value.greeks!,
       })
       .pipe(finalize(() => this.loading.set(false)))
@@ -108,8 +79,8 @@ export class PricingForm {
       return body.message;
     }
     if (err.status === 0) {
-      return "Impossible de joindre l'API de pricing. Est-elle démarrée ?";
+      return 'Could not reach the pricing API. Is it running?';
     }
-    return `Erreur inattendue (HTTP ${err.status}).`;
+    return `Unexpected error (HTTP ${err.status}).`;
   }
 }

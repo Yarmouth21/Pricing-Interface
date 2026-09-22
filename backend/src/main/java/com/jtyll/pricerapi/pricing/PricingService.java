@@ -11,12 +11,17 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -32,23 +37,41 @@ public class PricingService {
     private final PricingEngineProperties properties;
     private final ObjectMapper objectMapper;
 
+    // Each request spawns a pricer_cli subprocess, which itself spawns up
+    // to 6 threads for --greeks. Without a cap, an unbounded number of
+    // concurrent requests could spawn an unbounded number of subprocesses
+    // and threads; this bounds how many engine invocations run at once,
+    // rejecting the rest with a 503 instead of degrading the whole host.
+    private final Semaphore enginePermits;
+
     public PricingService(PricingEngineProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.enginePermits = new Semaphore(properties.maxConcurrentRequests());
     }
 
     public PricingResponse price(PricingRequest request) {
-        List<String> command = buildCommand(request);
-        log.info("Pricing request received: method={} optionType={} spot={} strike={} r={} vol={} T={}",
-                request.method(), request.optionType(), request.spot(), request.strike(),
-                request.riskFreeRate(), request.volatility(), request.maturity());
+        if (!enginePermits.tryAcquire()) {
+            throw new PricingEngineBusyException(
+                    "Pricing engine is at capacity (" + properties.maxConcurrentRequests()
+                            + " concurrent requests); please try again shortly");
+        }
 
-        String stdout = runEngine(command);
-        PricingResponse response = parseResponse(request, stdout);
+        try {
+            List<String> command = buildCommand(request);
+            log.info("Pricing request received: method={} optionType={} spot={} strike={} r={} vol={} T={}",
+                    request.method(), request.optionType(), request.spot(), request.strike(),
+                    request.riskFreeRate(), request.volatility(), request.maturity());
 
-        log.info("Pricing result: method={} optionType={} price={} durationMs={}",
-                response.method(), response.optionType(), response.price(), response.durationMs());
-        return response;
+            String stdout = runEngine(command);
+            PricingResponse response = parseResponse(request, stdout);
+
+            log.info("Pricing result: method={} optionType={} price={} durationMs={}",
+                    response.method(), response.optionType(), response.price(), response.durationMs());
+            return response;
+        } finally {
+            enginePermits.release();
+        }
     }
 
     private List<String> buildCommand(PricingRequest request) {
@@ -87,14 +110,27 @@ public class PricingService {
                     .redirectErrorStream(false)
                     .start();
 
+            // Drain stdout/stderr concurrently with the process running,
+            // not after waitFor() returns: if the child writes more than
+            // the OS pipe buffer holds before anyone reads it, it blocks
+            // on write() and waitFor() would never see it exit. Starting
+            // both readers first avoids that classic ProcessBuilder
+            // deadlock, even though today's output (a single JSON line)
+            // is far smaller than the buffer.
+            Process finalProcess = process;
+            CompletableFuture<String> stdoutFuture =
+                    CompletableFuture.supplyAsync(() -> readStreamUnchecked(finalProcess.getInputStream()));
+            CompletableFuture<String> stderrFuture =
+                    CompletableFuture.supplyAsync(() -> readStreamUnchecked(finalProcess.getErrorStream()));
+
             boolean finished = process.waitFor(properties.timeoutSeconds(), TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
                 throw new PricingEngineException("Pricing engine timed out after " + properties.timeoutSeconds() + "s");
             }
 
-            String stdout = readStream(process.getInputStream());
-            String stderr = readStream(process.getErrorStream());
+            String stdout = stdoutFuture.join();
+            String stderr = stderrFuture.join();
 
             if (process.exitValue() != 0 && stdout.isBlank()) {
                 throw new PricingEngineException("Pricing engine failed: " + stderr.trim());
@@ -106,6 +142,9 @@ public class PricingService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new PricingEngineException("Pricing engine call was interrupted", e);
+        } catch (CompletionException e) {
+            throw new PricingEngineException("Failed to read pricing engine output",
+                    e.getCause() != null ? e.getCause() : e);
         } finally {
             if (process != null) {
                 process.destroyForcibly();
@@ -113,7 +152,15 @@ public class PricingService {
         }
     }
 
-    private static String readStream(java.io.InputStream inputStream) throws IOException {
+    private static String readStreamUnchecked(InputStream inputStream) {
+        try {
+            return readStream(inputStream);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static String readStream(InputStream inputStream) throws IOException {
         StringBuilder builder = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
             String line;

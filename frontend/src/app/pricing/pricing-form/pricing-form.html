@@ -1,18 +1,18 @@
 <div class="pricing-card">
-  <h1>Pricer d'options européennes</h1>
-  <p class="subtitle">Black-Scholes analytique ou Monte Carlo, calcul délégué au moteur C++</p>
+  <h1>European Option Pricer</h1>
+  <p class="subtitle">Black-Scholes analytical or Monte Carlo, pricing delegated to the C++ engine</p>
 
   <form [formGroup]="form" (ngSubmit)="submit()">
     <div class="field-row">
-      <label for="method">Méthode</label>
+      <label for="method">Method</label>
       <select id="method" formControlName="method">
-        <option [value]="PricingMethod.BlackScholes">Black-Scholes (analytique)</option>
+        <option [value]="PricingMethod.BlackScholes">Black-Scholes (analytical)</option>
         <option [value]="PricingMethod.MonteCarlo">Monte Carlo</option>
       </select>
     </div>
 
     <div class="field-row">
-      <label for="optionType">Type d'option</label>
+      <label for="optionType">Option type</label>
       <select id="optionType" formControlName="optionType">
         <option [value]="OptionType.Call">Call</option>
         <option [value]="OptionType.Put">Put</option>
@@ -21,7 +21,7 @@
 
     <div class="field-grid">
       <div class="field">
-        <label for="spot">Prix spot (S₀)</label>
+        <label for="spot">Spot price (S₀)</label>
         <input id="spot" type="number" step="0.01" formControlName="spot" />
       </div>
       <div class="field">
@@ -29,15 +29,15 @@
         <input id="strike" type="number" step="0.01" formControlName="strike" />
       </div>
       <div class="field">
-        <label for="riskFreeRate">Taux sans risque (r)</label>
+        <label for="riskFreeRate">Risk-free rate (r)</label>
         <input id="riskFreeRate" type="number" step="0.001" formControlName="riskFreeRate" />
       </div>
       <div class="field">
-        <label for="volatility">Volatilité (σ)</label>
+        <label for="volatility">Volatility (σ)</label>
         <input id="volatility" type="number" step="0.01" formControlName="volatility" />
       </div>
       <div class="field">
-        <label for="maturity">Maturité en années (T)</label>
+        <label for="maturity">Maturity in years (T)</label>
         <input id="maturity" type="number" step="0.01" formControlName="maturity" />
       </div>
     </div>
@@ -45,34 +45,22 @@
     @if (isMonteCarlo) {
       <div class="field-grid">
         <div class="field">
-          <label for="paths">Nombre de trajectoires</label>
+          <label for="paths">Number of paths</label>
           <input id="paths" type="number" step="1000" formControlName="paths" />
-        </div>
-        <div class="field">
-          <label for="steps">Pas de temps</label>
-          <input id="steps" type="number" step="1" formControlName="steps" />
         </div>
       </div>
     }
 
     <label class="checkbox-row" for="greeks">
       <input id="greeks" type="checkbox" formControlName="greeks" />
-      Afficher les grecques (delta, gamma, theta, vega)
+      Show the Greeks (delta, gamma, theta, vega)
     </label>
-
-    @if (form.errors?.['greeksWorkloadTooLarge']) {
-      <div class="alert alert-error">
-        Avec les grecques activées, le nombre de trajectoires doit être ≤
-        {{ maxPathsWithGreeks }} et le nombre de pas ≤ {{ maxStepsWithGreeks }} (7 simulations sont
-        nécessaires au lieu d'une seule).
-      </div>
-    }
 
     <button type="submit" [disabled]="loading()">
       @if (loading()) {
-        Calcul en cours…
+        Pricing…
       } @else {
-        Pricer
+        Price it
       }
     </button>
   </form>
@@ -88,10 +76,10 @@
         <span>{{ res.method === PricingMethod.BlackScholes ? 'Black-Scholes' : 'Monte Carlo' }}</span>
         <span>{{ res.optionType === OptionType.Call ? 'Call' : 'Put' }}</span>
         @if (res.stdError !== null) {
-          <span>Erreur standard: ±{{ res.stdError | number: '1.4-4' }}</span>
+          <span>Standard error: ±{{ res.stdError | number: '1.4-4' }}</span>
         }
         @if (res.paths !== null) {
-          <span>{{ res.paths }} trajectoires × {{ res.steps }} pas</span>
+          <span>{{ res.paths }} paths</span>
         }
         <span>{{ res.durationMs }} ms</span>
       </div>

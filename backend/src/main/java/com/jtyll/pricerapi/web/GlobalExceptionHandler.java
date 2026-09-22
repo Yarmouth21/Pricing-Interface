@@ -1,5 +1,6 @@
 package com.jtyll.pricerapi.web;
 
+import com.jtyll.pricerapi.pricing.PricingEngineBusyException;
 import com.jtyll.pricerapi.pricing.PricingEngineException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +26,12 @@ public class GlobalExceptionHandler {
                 fieldErrors.put(err.getField(), err.getDefaultMessage()));
 
         return ResponseEntity.badRequest().body(body(HttpStatus.BAD_REQUEST, "Validation failed", fieldErrors));
+    }
+
+    @ExceptionHandler(PricingEngineBusyException.class)
+    public ResponseEntity<Map<String, Object>> handlePricingEngineBusy(PricingEngineBusyException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(body(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), null));
     }
 
     @ExceptionHandler(PricingEngineException.class)

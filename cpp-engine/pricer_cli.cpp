@@ -17,6 +17,13 @@
  *              --r=0.05 --vol=0.2 --t=1.0 [--paths=100000] [--steps=252] \
  *              [--seed=42] [--greeks]
  *
+ * --steps is currently accepted but unused: both pricers value a
+ * European vanilla, whose payoff depends only on S_T, so Monte Carlo
+ * draws S_T directly in one exact step (see monteCarloAt below) instead
+ * of compounding --steps sub-steps for the same distribution at higher
+ * cost. The flag is kept on the CLI/API surface for future
+ * path-dependent payoffs (Asian, barrier) that would need it.
+ *
  * With --greeks, the response additionally reports delta, gamma, theta
  * and vega:
  *   - bs: exact closed-form derivatives of the Black-Scholes formula.
@@ -151,27 +158,37 @@ static Greeks blackScholesGreeks(const Params& p) {
     return { delta, gamma, theta, vega };
 }
 
-// Monte Carlo price under the risk-neutral GBM using the exact
-// log-normal transition (no discretization bias), same scheme as
-// calculatePrice() in ../pricing.cpp, generalized to call/put and
-// arbitrary maturity/paths/steps. Re-seeds its own generator so callers
-// can get a reproducible price for arbitrary (s0, vol, t) triples, used
-// directly and reused with bumped parameters for the finite difference
-// Greeks below.
+// Monte Carlo price under the risk-neutral GBM, same distributional
+// assumption as calculatePrice() in ../pricing.cpp, generalized to
+// call/put and arbitrary maturity/paths. Re-seeds its own generator so
+// callers can get a reproducible price for arbitrary (s0, vol, t)
+// triples, used directly and reused with bumped parameters for the
+// finite difference Greeks below.
+//
+// This draws S_T directly in a single step rather than compounding
+// p.steps intermediate sub-steps. That's not an approximation: the
+// log-normal transition of GBM from time 0 to T is exact for any single
+// step (there is no discretization bias to reduce by subdividing it),
+// and a European payoff depends only on S_T, not on the path taken to
+// get there. Subdividing into steps would draw p.steps Gaussians per
+// path and multiply the sum of their (correlated-by-construction)
+// increments, which is mathematically equivalent in distribution to one
+// draw but p.steps times more expensive for identically the same
+// answer. p.steps is intentionally unused here; it stays on the Params
+// struct and CLI surface for future path-dependent payoffs (Asian
+// averages, barrier monitoring) whose value genuinely depends on
+// intermediate observations of S, unlike a European vanilla's.
 struct McResult { double price; double stdError; };
 
 static McResult monteCarloAt(const Params& p, double s0, double vol, double t) {
     mt19937 gen(p.seed);
     normal_distribution<double> dist(0.0, 1.0);
-    double dt = t / p.steps;
-    double drift = (p.r - 0.5 * vol * vol) * dt;
-    double diffusion = vol * sqrt(dt);
+    double drift = (p.r - 0.5 * vol * vol) * t;
+    double diffusion = vol * sqrt(t);
 
     double sum = 0.0, sumSq = 0.0;
     for (long j = 0; j < p.paths; j++) {
-        double st = s0;
-        for (int i = 0; i < p.steps; i++)
-            st *= exp(drift + diffusion * dist(gen));
+        double st = s0 * exp(drift + diffusion * dist(gen));
 
         double payoff = (p.type == "call") ? max(st - p.k, 0.0) : max(p.k - st, 0.0);
         sum += payoff;
