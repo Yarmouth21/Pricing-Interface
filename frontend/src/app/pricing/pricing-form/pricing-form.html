@@ -1,0 +1,87 @@
+<div class="pricing-card">
+  <h1>Pricer d'options européennes</h1>
+  <p class="subtitle">Black-Scholes analytique ou Monte Carlo — calcul délégué au moteur C++</p>
+
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    <div class="field-row">
+      <label for="method">Méthode</label>
+      <select id="method" formControlName="method">
+        <option [value]="PricingMethod.BlackScholes">Black-Scholes (analytique)</option>
+        <option [value]="PricingMethod.MonteCarlo">Monte Carlo</option>
+      </select>
+    </div>
+
+    <div class="field-row">
+      <label for="optionType">Type d'option</label>
+      <select id="optionType" formControlName="optionType">
+        <option [value]="OptionType.Call">Call</option>
+        <option [value]="OptionType.Put">Put</option>
+      </select>
+    </div>
+
+    <div class="field-grid">
+      <div class="field">
+        <label for="spot">Prix spot (S₀)</label>
+        <input id="spot" type="number" step="0.01" formControlName="spot" />
+      </div>
+      <div class="field">
+        <label for="strike">Strike (K)</label>
+        <input id="strike" type="number" step="0.01" formControlName="strike" />
+      </div>
+      <div class="field">
+        <label for="riskFreeRate">Taux sans risque (r)</label>
+        <input id="riskFreeRate" type="number" step="0.001" formControlName="riskFreeRate" />
+      </div>
+      <div class="field">
+        <label for="volatility">Volatilité (σ)</label>
+        <input id="volatility" type="number" step="0.01" formControlName="volatility" />
+      </div>
+      <div class="field">
+        <label for="maturity">Maturité en années (T)</label>
+        <input id="maturity" type="number" step="0.01" formControlName="maturity" />
+      </div>
+    </div>
+
+    @if (isMonteCarlo) {
+      <div class="field-grid">
+        <div class="field">
+          <label for="paths">Nombre de trajectoires</label>
+          <input id="paths" type="number" step="1000" formControlName="paths" />
+        </div>
+        <div class="field">
+          <label for="steps">Pas de temps</label>
+          <input id="steps" type="number" step="1" formControlName="steps" />
+        </div>
+      </div>
+    }
+
+    <button type="submit" [disabled]="loading()">
+      @if (loading()) {
+        Calcul en cours…
+      } @else {
+        Pricer
+      }
+    </button>
+  </form>
+
+  @if (errorMessage(); as message) {
+    <div class="alert alert-error">{{ message }}</div>
+  }
+
+  @if (result(); as res) {
+    <div class="result">
+      <div class="result-price">{{ res.price | number: '1.4-4' }}</div>
+      <div class="result-meta">
+        <span>{{ res.method === PricingMethod.BlackScholes ? 'Black-Scholes' : 'Monte Carlo' }}</span>
+        <span>{{ res.optionType === OptionType.Call ? 'Call' : 'Put' }}</span>
+        @if (res.stdError !== null) {
+          <span>Erreur standard: ±{{ res.stdError | number: '1.4-4' }}</span>
+        }
+        @if (res.paths !== null) {
+          <span>{{ res.paths }} trajectoires × {{ res.steps }} pas</span>
+        }
+        <span>{{ res.durationMs }} ms</span>
+      </div>
+    </div>
+  }
+</div>

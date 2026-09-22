@@ -1,0 +1,8 @@
+# C++ engine build output
+cpp-engine/pricer_cli
+cpp-engine/*.o
+cpp-engine/*.exe
+
+# OS
+.DS_Store
+Thumbs.db
