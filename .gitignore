@@ -6,3 +6,6 @@ cpp-engine/*.exe
 # OS
 .DS_Store
 Thumbs.db
+
+# Local Claude Code config (dev-server launch config, etc.)
+.claude/
